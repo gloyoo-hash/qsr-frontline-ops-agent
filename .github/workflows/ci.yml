@@ -1,0 +1,64 @@
+name: ShiftPilot QSR AgentOps CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test-eval:
+    name: Lint, Unit Tests & Golden Eval Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Secret Hygiene Check (zero hardcoded API keys)
+        run: |
+          ! grep -rnE "AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9]{20,}" shiftpilot_agent/ tests/ evals/ terraform/
+
+      - name: Lint with Ruff
+        run: ruff check shiftpilot_agent tests evals
+
+      - name: Run Unit & Integration Tests (pytest)
+        run: pytest -v
+
+      - name: Run Golden Dataset Evaluation Suite
+        run: python -m evals.run_evals --strict
+
+  terraform-validate:
+    name: Terraform Format & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Terraform Format Check
+        working-directory: terraform
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init & Validate
+        working-directory: terraform
+        run: |
+          terraform init -backend=false
+          terraform validate
